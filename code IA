@@ -1,0 +1,168 @@
+import pygame
+import random
+import os
+import numpy as np
+import pickle
+from collections import defaultdict
+pygame.init()
+SCREEN_WIDTH = 800
+SCREEN_HEIGHT = 600
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Elon vs The Socialism - AI Learning")
+
+
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+RED = (255, 0, 0)
+GREEN = (0, 255, 0)
+BLUE = (0, 0, 255)
+
+#i Constant
+LEARNING_RATE = 0.1
+DISCOUNT_FACTOR = 0.95
+EPSILON = 0.1
+
+# Q-table (Estado -> Acción -> Valor)
+Q = defaultdict(lambda: [0, 0, 0])  # [LEFT, RIGHT, JUMP]
+
+# Cargar Q-table si existe
+if os.path.exists("ai_qtable.pkl"):
+    with open("ai_qtable.pkl", "rb") as f:
+        Q = defaultdict(lambda: [0, 0, 0], pickle.load(f))
+
+
+class Player(pygame.sprite.Sprite):
+    def __init__(self):
+        super().__init__()
+        self.image = pygame.Surface((50, 50))
+        self.image.fill(GREEN)
+        self.rect = self.image.get_rect(center=(100, SCREEN_HEIGHT - 100))
+        self.vel_y = 0
+        self.jumping = False
+
+    def update(self):
+        self.vel_y += 1  # Gravedad
+        self.rect.y += self.vel_y
+
+        # Limitar movimiento horizontal
+        self.rect.x = max(0, min(self.rect.x, SCREEN_WIDTH - 50))
+        
+        if self.rect.bottom > SCREEN_HEIGHT - 50:
+            self.rect.bottom = SCREEN_HEIGHT - 50
+            self.jumping = False
+
+    def jump(self):
+        if not self.jumping:  # Solo saltar si no está ya en el aire
+            self.vel_y = -15  # Ajusta este valor para cambiar la altura del salto
+            self.jumping = True
+
+class Enemy(pygame.sprite.Sprite):
+    def __init__(self):
+        super().__init__()
+        self.image = pygame.Surface((50, 50))
+        self.image.fill(RED)
+        self.rect = self.image.get_rect(center=(random.randint(SCREEN_WIDTH, SCREEN_WIDTH + 500), SCREEN_HEIGHT - 50))
+        self.speed = random.randint(3, 6)
+
+    def update(self):
+        self.rect.x -= self.speed
+        if self.rect.right < 0:
+            self.kill()
+
+
+def ai_decision(player, enemies, coins):
+    # Evitar el error cuando no hay enemigos o monedas
+    try:
+        state = (
+            min(enemy.rect.x - player.rect.x for enemy in enemies if enemy.rect.x > player.rect.x) // 100,
+            min(coin.rect.x - player.rect.x for coin in coins if coin.rect.x > player.rect.x) // 100
+        )
+    except ValueError:
+        # Si no hay enemigos o monedas disponibles, asignar un valor predeterminado
+        state = (0, 0)
+
+ 
+    if random.random() < EPSILON:
+        action = random.choice([0, 1, 2])
+    else:
+        action = np.argmax(Q[state])
+
+
+    if action == 0:  # LEFT
+        player.rect.x -= 5
+    elif action == 1:  # RIGHT
+        player.rect.x += 5
+    elif action == 2:  # JUMP
+        if not player.jumping:
+            player.jump()
+
+    return state, action
+
+
+def train_ai(old_state, action, reward, new_state):
+    max_future_q = max(Q[new_state])
+    current_q = Q[old_state][action]
+    Q[old_state][action] = (1 - LEARNING_RATE) * current_q + LEARNING_RATE * (reward + DISCOUNT_FACTOR * max_future_q)
+
+
+def save_ai_progress():
+    with open("ai_qtable.pkl", "wb") as f:
+        pickle.dump(dict(Q), f)
+
+
+def ai_game_loop():
+    global score
+    player = Player()
+    all_sprites = pygame.sprite.Group(player)
+    enemies = pygame.sprite.Group()
+    coins = pygame.sprite.Group()
+
+    clock = pygame.time.Clock()
+    running = True
+    last_state = None
+    last_action = None
+
+    while running:
+        clock.tick(60)
+        
+       
+        if len(enemies) < 3:
+            enemy = Enemy()
+            all_sprites.add(enemy)
+            enemies.add(enemy)
+        
+       
+        current_state, action = ai_decision(player, enemies, coins)
+        
+        if last_state is not None:
+            reward = 1  # Recompensa por sobrevivir
+            train_ai(last_state, last_action, reward, current_state)
+        
+        last_state = current_state
+        last_action = action
+
+        # Actualizar sprites
+        all_sprites.update()
+
+       
+        if pygame.sprite.spritecollide(player, enemies, False):
+            reward = -100  # Penalización por morir
+            train_ai(last_state, last_action, reward, current_state)
+            save_ai_progress()
+            running = False
+
+        
+        screen.fill(BLACK)
+        all_sprites.draw(screen)
+        pygame.display.flip()
+
+
+def show_menu():   
+    pass
+
+
+def game_loop():
+ 
+ pass
+
+ai_game_loop()  
