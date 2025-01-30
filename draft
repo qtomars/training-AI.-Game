@@ -1,0 +1,287 @@
+
+from dis import show_code
+import pygame
+import random
+import os
+import numpy as np
+import pickle
+from collections import defaultdict
+
+# Inicializar Pygame
+pygame.init()
+
+# Configuración de pantalla
+SCREEN_WIDTH = 800
+SCREEN_HEIGHT = 600
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Elon vs The Socialism")
+
+# Colores
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+RED = (255, 0, 0)
+GREEN = (0, 255, 0)
+BLUE = (0, 0, 255)
+
+# Fuente
+font = pygame.font.Font(None, 36)
+
+# Cargar imágenes
+player_img = pygame.image.load("C:/Users/57314/Documents/Games/elon.jpg")
+enemy_img = pygame.image.load("C:/Users/57314/Documents/Games/petro.jpg")
+coin_img = pygame.image.load("C:/Users/57314/Documents/Games/coin.jpg")
+background_img = pygame.image.load("C:/Users/57314/Documents/Games/background.jpg")
+
+player_img = pygame.transform.scale(player_img, (50, 50))
+enemy_img = pygame.transform.scale(enemy_img, (50, 50))
+coin_img = pygame.transform.scale(coin_img, (30, 30))
+background_img = pygame.transform.scale(background_img, (SCREEN_WIDTH, SCREEN_HEIGHT))
+
+# Variables globales
+score = 0
+LEARNING_RATE = 0.1
+DISCOUNT_FACTOR = 0.95
+EPSILON = 0.1
+Q = defaultdict(lambda: [0, 0, 0])  # [LEFT, RIGHT, JUMP]
+
+# Cargar Q-table si existe
+if os.path.exists("ai_qtable.pkl"):
+    with open("ai_qtable.pkl", "rb") as f:
+        Q = defaultdict(lambda: [0, 0, 0], pickle.load(f))
+
+# Clases
+class Player(pygame.sprite.Sprite):
+    def __init__(self):
+        super().__init__()
+        self.image = player_img
+        self.rect = self.image.get_rect()
+        self.rect.center = (100, SCREEN_HEIGHT - 100)
+        self.vel_y = 0
+        self.jumping = False
+
+    def update(self):
+        self.vel_y += 1
+        if self.vel_y > 10:
+            self.vel_y = 10
+        self.rect.y += self.vel_y
+
+        if self.rect.left < 0:
+            self.rect.left = 0
+        if self.rect.right > SCREEN_WIDTH:
+            self.rect.right = SCREEN_WIDTH
+        if self.rect.bottom > SCREEN_HEIGHT - 50:
+            self.rect.bottom = SCREEN_HEIGHT - 50
+            self.jumping = False
+
+    def jump(self):
+        if not self.jumping:
+            self.vel_y = -15
+            self.jumping = True
+
+class Enemy(pygame.sprite.Sprite):
+    def __init__(self):
+        super().__init__()
+        self.image = enemy_img
+        self.rect = self.image.get_rect()
+        self.rect.center = (random.randint(SCREEN_WIDTH, SCREEN_WIDTH + 500), SCREEN_HEIGHT - 50)
+        self.speed = random.randint(5, 6)
+
+    def update(self):
+        self.rect.x -= self.speed
+        if self.rect.right < 0:
+            self.rect.center = (random.randint(SCREEN_WIDTH, SCREEN_WIDTH + 500), SCREEN_HEIGHT - 50)
+            self.speed = random.randint(0, 1)
+
+class Coin(pygame.sprite.Sprite):
+    def __init__(self):
+        super().__init__()
+        self.image = coin_img
+        self.rect = self.image.get_rect()
+        self.rect.center = (random.randint(SCREEN_WIDTH, SCREEN_WIDTH + 500), random.randint(100, SCREEN_HEIGHT - 100))
+
+    def update(self):
+        self.rect.x -= 5
+        if self.rect.right < 0:
+            self.rect.center = (random.randint(SCREEN_WIDTH, SCREEN_WIDTH + 500), random.randint(100, SCREEN_HEIGHT - 100))
+
+# Funciones para IA
+def ai_decision(player, enemies, coins):
+    # Detectar la distancia más cercana del enemigo y la moneda
+    try:
+        nearest_enemy = min(enemy.rect.x - player.rect.x for enemy in enemies if enemy.rect.x > player.rect.x)
+    except ValueError:
+        nearest_enemy = 0
+    
+    try:
+        nearest_coin = min(coin.rect.x - player.rect.x for coin in coins if coin.rect.x > player.rect.x)
+    except ValueError:
+        nearest_coin = 0
+
+    state = (nearest_enemy // 100, nearest_coin // 100)  # Dividimos para reducir la complejidad
+
+    # Si la IA está en la parte izquierda, primero intenta moverse a la derecha
+    if player.rect.x < SCREEN_WIDTH // 4:
+        action = 1  # Moverse a la derecha
+    elif random.random() < EPSILON:
+        # Acción aleatoria: izquierda, derecha o saltar
+        action = random.choice([0, 1, 2])
+    else:
+        # Elegir la acción con la mayor recompensa en la Q-table
+        action = np.argmax(Q[state])
+
+    # Tomar la acción
+    if action == 0:  # LEFT
+        player.rect.x -= 5
+    elif action == 1:  # RIGHT
+        player.rect.x += 5
+    elif action == 2:  # JUMP
+        if not player.jumping:
+            player.jump()
+
+    return state, action
+
+def train_ai(old_state, action, reward, new_state):
+    max_future_q = max(Q[new_state])  # Mejor acción futura
+    current_q = Q[old_state][action]  # Q actual para la acción tomada
+    Q[old_state][action] = (1 - LEARNING_RATE) * current_q + LEARNING_RATE * (reward + DISCOUNT_FACTOR * max_future_q)
+
+def save_ai_progress():
+    with open("ai_qtable.pkl", "wb") as f:
+        pickle.dump(dict(Q), f)
+
+# Función del menú
+def show_menu():
+    screen.blit(background_img, (0, 0))
+    title_text = font.render("Elon vs The Socialism", True, WHITE)
+    play_text = font.render("Presiona P para jugar", True, GREEN)
+    scores_text = font.render("Presiona H para ver el historial", True, BLUE)
+    quit_text = font.render("Presiona Q para salir", True, RED)
+
+    screen.blit(title_text, (SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2 - 100))
+    screen.blit(play_text, (SCREEN_WIDTH // 2 - 120, SCREEN_HEIGHT // 2 - 20))
+    screen.blit(scores_text, (SCREEN_WIDTH // 2 - 180, SCREEN_HEIGHT // 2 + 50))
+    screen.blit(quit_text, (SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 120))
+    pygame.display.flip()
+
+    waiting = True
+    while waiting:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                return "quit"
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_p:
+                    return "play"
+                if event.key == pygame.K_h:
+                    return "scores"
+                if event.key == pygame.K_q:
+                    return "quit"
+
+# Funciones de puntuación
+def save_score(score):
+    with open("scores.txt", "a") as file:
+        file.write(f"{score}\n")
+
+# Función del juego
+def main_game():
+    global score
+    clock = pygame.time.Clock()
+    FPS = 60
+    all_sprites = pygame.sprite.Group()
+    enemies = pygame.sprite.Group()
+    coins = pygame.sprite.Group()
+
+    player = Player()
+    all_sprites.add(player)
+
+    for _ in range(2):
+        enemy = Enemy()
+        all_sprites.add(enemy)
+        enemies.add(enemy)
+
+    for _ in range(3):
+        coin = Coin()
+        all_sprites.add(coin)
+        coins.add(coin)
+
+    score = 0
+    running = True
+    last_state = None
+    last_action = None
+
+    while running:
+        clock.tick(FPS)
+
+        # Decisión de la IA
+        current_state, action = ai_decision(player, enemies, coins)
+
+        if last_state is not None:
+            # Recompensa por sobrevivir o recoger monedas
+            reward = 1 if pygame.sprite.spritecollide(player, coins, True) else 0
+            train_ai(last_state, last_action, reward, current_state)
+
+        last_state = current_state
+        last_action = action
+
+        # Comprobar si el jugador toca monedas
+        coin_collisions = pygame.sprite.spritecollide(player, coins, True)
+        for coin in coin_collisions:
+            score += 10
+            new_coin = Coin()
+            all_sprites.add(new_coin)
+            coins.add(new_coin)
+
+        # Si la IA colisiona con el enemigo, termina el juego
+        if pygame.sprite.spritecollide(player, enemies, False):
+            save_score(score)
+            save_ai_progress()
+            return "game_over"
+
+        # Mostrar pantalla
+        screen.blit(background_img, (0, 0))
+        all_sprites.update()
+        all_sprites.draw(screen)
+        score_text = font.render(f"Puntuación: {score}", True, WHITE)
+        screen.blit(score_text, (10, 10))
+        pygame.display.flip()
+
+def game_loop():
+    while True:
+        action = show_menu()
+
+        if action == "play":
+            result = main_game()
+            if result == "game_over":
+                show_game_over_screen(score)
+        elif action == "scores":
+            show_code()
+        elif action == "quit":
+            pygame.quit()
+            return
+
+def show_game_over_screen(score):
+    screen.blit(background_img, (0, 0))
+    game_over_text = font.render("Game Over", True, RED)
+    score_text = font.render(f"Puntuación: {score}", True, WHITE)
+    restart_text = font.render("Presiona R para reiniciar", True, GREEN)
+    quit_text = font.render("Presiona Q para salir", True, GREEN)
+    screen.blit(game_over_text, (SCREEN_WIDTH // 2 - 140, SCREEN_HEIGHT // 2 - 100))
+    screen.blit(score_text, (SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 - 20))
+    screen.blit(restart_text, (SCREEN_WIDTH // 2 - 200, SCREEN_HEIGHT // 2 + 50))
+    screen.blit(quit_text, (SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2 + 120))
+    pygame.display.flip()
+
+    waiting = True
+    while waiting:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                return
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_r:
+                    return "restart"
+                if event.key == pygame.K_q:
+                    return "quit"
+
+# Ejecutar el juego con la IA
+game_loop()
